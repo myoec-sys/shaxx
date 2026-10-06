@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Node & Bot Uptime Monitor</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js"></script>
+  <style>
+    :root {
+      --bg: #0c0d0f;
+      --card-bg: #141519;
+      --card-border: rgba(255, 255, 255, 0.06);
+      --text-main: #f0f1f4;
+      --text-muted: #6e717b;
+      --text-dim: #444750;
+      
+      --status-ok: #34d399;
+      --status-ok-bg: rgba(52, 211, 153, 0.1);
+      --status-warn: #fbbf24;
+      --status-warn-bg: rgba(251, 191, 36, 0.1);
+      --status-err: #f87171;
+      --status-err-bg: rgba(248, 113, 113, 0.1);
+      
+      --accent-subtle: rgba(255, 255, 255, 0.04);
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 16px 12px 60px;
+    }
+
+    .app-container {
+      width: 100%;
+      max-width: 440px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Tactile micro-press effect */
+    .tactile {
+      transition: transform 0.12s cubic-bezier(0.2, 0.8, 0.4, 1), opacity 0.12s ease;
+      cursor: pointer;
+    }
+    .tactile:active {
+      transform: scale(0.96);
+      opacity: 0.88;
+    }
+
+    /* Top Global Status Banner */
+    .global-banner {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .global-status-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .pulse-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--status-ok);
+      position: relative;
+    }
+    .pulse-dot::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      background: var(--status-ok);
+      opacity: 0.35;
+      animation: pulse 2.2s infinite ease-out;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.8); opacity: 0.5; }
+      100% { transform: scale(2.2); opacity: 0; }
+    }
+    .banner-title {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.2px;
+    }
+    .banner-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+    .refresh-all-btn {
+      background: var(--accent-subtle);
+      border: 1px solid var(--card-border);
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+    }
+
+    /* Quick Metrics Cards */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+    }
+    .metric-pill {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 12px;
+      text-align: left;
+    }
+    .metric-val {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.4px;
+      font-family: var(--font-mono);
+    }
+    .metric-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Filter Chips */
+    .filters-row {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding-bottom: 2px;
+    }
+    .filters-row::-webkit-scrollbar { display: none; }
+    .filter-chip {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      padding: 7px 14px;
+      border-radius: 99px;
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .filter-chip.active {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-main);
+      border-color: rgba(255, 255, 255, 0.18);
+    }
+
+    /* Nodes List */
+    .nodes-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .node-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .node-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .node-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .node-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--status-ok);
+      flex-shrink: 0;
+    }
+    .node-dot.warn { background: var(--status-warn); }
+    .node-dot.err { background: var(--status-err); }
+    .node-name {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.2px;
+    }
+    .node-type-tag {
+      font-size: 10px;
+      font-family: var(--font-mono);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-muted);
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .uptime-badge {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: var(--status-ok-bg);
+      color: var(--status-ok);
+      font-weight: 500;
+    }
+    .uptime-badge.err {
+      background: var(--status-err-bg);
+      color: var(--status-err);
+    }
+
+    /* Load Progress Bars */
+    .specs-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .spec-item {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .spec-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+    .progress-track {
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: rgba(255, 255, 255, 0.35);
+      border-radius: 99px;
+      transform-origin: left;
+    }
+
+    /* Node Footer & Actions */
+    .node-bottom {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.03);
+    }
+    .node-ping-info {
+      font-size: 11px;
+      color: var(--text-muted);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .node-actions {
+      display: flex;
+      gap: 6px;
+    }
+    .action-pill-btn {
+      background: var(--accent-subtle);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      font-size: 11px;
+      padding: 5px 10px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Bottom Sheet Modal for Logs */
+    .sheet-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(4px);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 100;
+    }
+    .bottom-sheet {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #121316;
+      border-top: 1px solid var(--card-border);
+      border-radius: 20px 20px 0 0;
+      padding: 16px 16px 32px;
+      max-width: 460px;
+      margin: 0 auto;
+      transform: translateY(100%);
+      z-index: 101;
+    }
+    .sheet-handle {
+      width: 36px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 99px;
+      margin: 0 auto 14px;
+    }
+    .sheet-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .sheet-title {
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .terminal-box {
+      background: #08090a;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #9ba1ad;
+      line-height: 1.6;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .log-line { display: flex; gap: 8px; }
+    .log-time { color: var(--text-dim); }
+    .log-ok { color: var(--status-ok); }
+    .log-warn { color: var(--status-warn); }
+  </style>
+</head>
+<body>
+
+<div class="app-container">
+  
+  <!-- Global Status -->
+  <div class="global-banner anim-node">
+    <div class="global-status-left">
+      <div class="pulse-dot"></div>
+      <div>
+        <div class="banner-title">Все системы в норме</div>
+        <div class="banner-sub">5 нод активно • 1 оффлайн</div>
+      </div>
+    </div>
+    <button class="refresh-all-btn tactile" id="refreshBtn" title="Обновить">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Global Metrics -->
+  <div class="metrics-grid anim-node">
+    <div class="metric-pill">
+      <div class="metric-val" id="metricUptime">99.8%</div>
+      <div class="metric-label">Аптайм 30д</div>
+    </div>
+    <div class="metric-pill">
+      <div class="metric-val" id="metricPing">28ms</div>
+      <div class="metric-label">Ср. отклик</div>
+    </div>
+    <div class="metric-pill">
+      <div class="metric-val">6</div>
+      <div class="metric-label">Сервисов</div>
+    </div>
+  </div>
+
+  <!-- Filter chips -->
+  <div class="filters-row anim-node">
+    <div class="filter-chip active tactile" data-filter="all">Все сервисы</div>
+    <div class="filter-chip tactile" data-filter="bot">Telegram боты</div>
+    <div class="filter-chip tactile" data-filter="vps">Серверы / VPS</div>
+    <div class="filter-chip tactile" data-filter="proxy">Прокси</div>
+  </div>
+
+  <!-- Nodes List -->
+  <div class="nodes-list" id="nodesContainer">
+    <!-- Populated by JS -->
+  </div>
+
+</div>
+
+<!-- Bottom Sheet (Terminal Logs) -->
+<div class="sheet-overlay" id="sheetOverlay"></div>
+<div class="bottom-sheet" id="bottomSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <div class="sheet-title" id="sheetTargetName">Логи ноды</div>
+    <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">tail -n 20</span>
+  </div>
+  <div class="terminal-box" id="terminalLogs">
+    <!-- Logs injected by JS -->
+  </div>
+</div>
+
+<script>
+  const NODES_DATA = [
+    {
+      id: "bot-1",
+      name: "Shop & AutoPay Core",
+      type: "bot",
+      typeLabel: "AIOGRAM",
+      status: "online",
+      uptime: "99.98%",
+      cpu: 18,
+      ramText: "284 MB / 1 GB",
+      ramPercent: 28,
+      location: "Frankfurt",
+      ping: "18ms",
+      upDuration: "14д 6ч"
+    },
+    {
+      id: "bot-2",
+      name: "Checker & Telethon Worker",
+      type: "bot",
+      typeLabel: "TELETHON",
+      status: "online",
+      uptime: "99.91%",
+      cpu: 42,
+      ramText: "410 MB / 1 GB",
+      ramPercent: 41,
+      location: "Helsinki",
+      ping: "24ms",
+      upDuration: "8д 12ч"
+    },
+    {
+      id: "vps-1",
+      name: "VPS Master Node #01",
+      type: "vps",
+      typeLabel: "UBUNTU",
+      status: "online",
+      uptime: "100%",
+      cpu: 12,
+      ramText: "1.2 GB / 4 GB",
+      ramPercent: 30,
+      location: "Amsterdam",
+      ping: "31ms",
+      upDuration: "42д 3ч"
+    },
+    {
+      id: "proxy-1",
+      name: "Private Rotating Proxy (DE)",
+      type: "proxy",
+      typeLabel: "SOCKS5",
+      status: "offline",
+      uptime: "94.2%",
+      cpu: 0,
+      ramText: "—",
+      ramPercent: 0,
+      location: "Frankfurt",
+      ping: "Timeout",
+      upDuration: "Down 12м"
+    }
+  ];
+
+  const MOCK_LOGS = {
+    "bot-1": [
+      { t: "17:14:02", lvl: "ok", msg: "Polling update: Message [ID: 8812] handled in 24ms" },
+      { t: "17:15:10", lvl: "ok", msg: "Invoice generated: CryptoPay #INV-9021" },
+      { t: "17:17:44", lvl: "ok", msg: "Webhook heartbeat: HTTP 200 (OK)" },
+      { t: "17:19:01", lvl: "warn", msg: "Slow response from upstream gateway: 412ms" }
+    ],
+    "bot-2": [
+      { t: "17:18:22", lvl: "ok", msg: "Target scan completed. 100 usernames processed." },
+      { t: "17:18:55", lvl: "ok", msg: "Telethon MTProto session alive. Ping 22ms" }
+    ],
+    "proxy-1": [
+      { t: "17:05:11", lvl: "warn", msg: "High socket latency: 1240ms" },
+      { t: "17:07:00", lvl: "err", msg: "Connection refused: Socket timeout after 5000ms" },
+      { t: "17:07:05", lvl: "err", msg: "Healthcheck failed. Marked node as OFFLINE" }
+    ]
+  };
+
+  const container = document.getElementById("nodesContainer");
+  let currentFilter = "all";
+
+  function renderNodes(filter = "all") {
+    container.innerHTML = "";
+    const filtered = filter === "all" ? NODES_DATA : NODES_DATA.filter(n => n.type === filter);
+
+    filtered.forEach(node => {
+      const isOff = node.status === "offline";
+      const card = document.createElement("div");
+      card.className = "node-card anim-card";
+      card.dataset.id = node.id;
+
+      card.innerHTML = `
+        <div class="node-top">
+          <div class="node-meta">
+            <div class="node-dot ${isOff ? 'err' : ''}"></div>
+            <div>
+              <div class="node-name">${node.name}</div>
+              <div style="margin-top: 3px; display: flex; gap: 6px; align-items: center;">
+                <span class="node-type-tag">${node.typeLabel}</span>
+                <span style="font-size: 11px; color: var(--text-muted);">${node.location}</span>
+              </div>
+            </div>
+          </div>
+          <div class="uptime-badge ${isOff ? 'err' : ''}">
+            ${isOff ? 'OFFLINE' : node.uptime}
+          </div>
+        </div>
+
+        <div class="specs-grid">
+          <div class="spec-item">
+            <div class="spec-header">
+              <span>CPU</span>
+              <span>${node.cpu}%</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" style="width: ${node.cpu}%;"></div>
+            </div>
+          </div>
+          <div class="spec-item">
+            <div class="spec-header">
+              <span>RAM</span>
+              <span>${node.ramPercent}%</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" style="width: ${node.ramPercent}%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="node-bottom">
+          <div class="node-ping-info">
+            <span>Ping: ${node.ping}</span>
+            <span>•</span>
+            <span>${node.upDuration}</span>
+          </div>
+          <div class="node-actions">
+            <button class="action-pill-btn tactile btn-logs" data-id="${node.id}">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+              Логи
+            </button>
+            <button class="action-pill-btn tactile btn-restart" data-id="${node.id}">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              Рестарт
+            </button>
+          </div>
+        </div>
+      `;
+      container.appendChild(card);
+    });
+
+    // Staggered card entrance
+    anime({
+      targets: '.anim-card',
+      translateY: [14, 0],
+      opacity: [0, 1],
+      duration: 380,
+      delay: anime.stagger(60),
+      easing: 'easeOutCubic'
+    });
+  }
+
+  // Filter Buttons
+  document.querySelectorAll(".filter-chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      document.querySelectorAll(".filter-chip").forEach(c => c.classList.remove("active"));
+      chip.classList.add("active");
+      currentFilter = chip.dataset.filter;
+      renderNodes(currentFilter);
+    });
+  });
+
+  // Action clicks (Event Delegation)
+  container.addEventListener("click", (e) => {
+    const restartBtn = e.target.closest(".btn-restart");
+    const logsBtn = e.target.closest(".btn-logs");
+
+    if (restartBtn) {
+      const id = restartBtn.dataset.id;
+      const svg = restartBtn.querySelector("svg");
+      
+      // Animate button spin
+      anime({
+        targets: svg,
+        rotate: "+=360",
+        duration: 800,
+        easing: "easeInOutQuad"
+      });
+
+      const card = restartBtn.closest(".node-card");
+      const badge = card.querySelector(".uptime-badge");
+      const dot = card.querySelector(".node-dot");
+      const originalText = badge.innerText;
+
+      badge.innerText = "RESTARTING...";
+      badge.style.color = "var(--status-warn)";
+      dot.className = "node-dot warn";
+
+      setTimeout(() => {
+        badge.innerText = "ONLINE";
+        badge.style.color = "var(--status-ok)";
+        badge.className = "uptime-badge";
+        dot.className = "node-dot";
+      }, 1200);
+    }
+
+    if (logsBtn) {
+      const id = logsBtn.dataset.id;
+      openLogs(id);
+    }
+  });
+
+  // Terminal Bottom Sheet
+  const overlay = document.getElementById("sheetOverlay");
+  const sheet = document.getElementById("bottomSheet");
+  const terminal = document.getElementById("terminalLogs");
+  const targetTitle = document.getElementById("sheetTargetName");
+
+  function openLogs(id) {
+    const node = NODES_DATA.find(n => n.id === id);
+    targetTitle.innerText = `Логи: ${node.name}`;
+    
+    const logs = MOCK_LOGS[id] || [
+      { t: "17:19:00", lvl: "ok", msg: "Service active. No warnings reported." }
+    ];
+
+    terminal.innerHTML = logs.map(l => `
+      <div class="log-line">
+        <span class="log-time">[${l.t}]</span>
+        <span class="log-${l.lvl}">${l.msg}</span>
+      </div>
+    `).join("");
+
+    overlay.style.pointerEvents = "auto";
+    anime({
+      targets: overlay,
+      opacity: [0, 1],
+      duration: 250,
+      easing: "easeOutQuad"
+    });
+
+    anime({
+      targets: sheet,
+      translateY: ["100%", "0%"],
+      duration: 320,
+      easing: "easeOutCubic"
+    });
+  }
+
+  function closeLogs() {
+    overlay.style.pointerEvents = "none";
+    anime({
+      targets: overlay,
+      opacity: 0,
+      duration: 200,
+      easing: "easeInQuad"
+    });
+    anime({
+      targets: sheet,
+      translateY: "100%",
+      duration: 240,
+      easing: "easeInCubic"
+    });
+  }
+
+  overlay.addEventListener("click", closeLogs);
+
+  // Global Refresh Animation
+  document.getElementById("refreshBtn").addEventListener("click", function() {
+    anime({
+      targets: this.querySelector("svg"),
+      rotate: "+=360",
+      duration: 650,
+      easing: "easeInOutCubic"
+    });
+    renderNodes(currentFilter);
+  });
+
+  // Initial load animations
+  anime.timeline()
+    .add({
+      targets: '.anim-node',
+      translateY: [12, 0],
+      opacity: [0, 1],
+      duration: 400,
+      delay: anime.stagger(70),
+      easing: 'easeOutCubic'
+    });
+
+  renderNodes();
+</script>
+
+</body>
+</html>
